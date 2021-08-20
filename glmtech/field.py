@@ -4,7 +4,7 @@ import mpmath as mp
 from scipy.special import (riccati_jn, riccati_yn, lpmn)
 from functools import partialmethod
 
-from glmtech.utils import (
+from .utils import (
     plane_wave_coefficient, ltaumn, lpimn,
     mie_ans, mie_bns, mie_cns, mie_dns
 )
@@ -21,22 +21,25 @@ MAGNETIC_FIELD_NAMES = [
     "magnetic", "h"
 ]
 
+TM_MODE_NAME = "tm"
+TE_MODE_NAME = "te"
+
 def one(*args, **kwargs): return 1
 
 def none(*args, **kwargs): return None
 
 
 class Field(ABC):
-    def __init__(self, wave_number, bscs={'TM': {}, 'TE': {}}, f0=1, name=""):
-        self.tm_bscs = bscs['TM']
-        self.te_bscs = bscs['TE']
+    def __init__(self, wave_number, bscs={'tm': {}, 'te': {}}, f0=1, name=""):
+        self.tm_bscs = bscs[TM_MODE_NAME]
+        self.te_bscs = bscs[TE_MODE_NAME]
         self.degrees = set()
         self.wave_number = wave_number
         self.f0 = f0
-        for _, m in self.tm_bscs:
-            self.degrees.add(m)
-        for _, m in self.te_bscs:
-            self.degrees.add(m)
+        for n, m in self.tm_bscs:
+            if self.tm_bscs[n, m] != 0: self.degrees.add(m)
+        for n, m in self.te_bscs:
+            if self.te_bscs[n, m] != 0: self.degrees.add(m)
         self.name = name
     
     @property
@@ -148,18 +151,70 @@ class Field(ABC):
     @abstractmethod
     def in_radius(self, x1, x2, x3, radius=None):
         pass
-
-class SphericalField(Field):
+    
     def bscs(self, mode):
         if mode.lower() == "tm":
             return self.tm_bscs
         if mode.lower() == "te":
             return self.te_bscs
         if mode.lower() not in ["tm", "te"]:
-            raise KeyError(
-                "I only recognize modes TM and TE. Received: " + str(mode)
+            raise ValueError(
+                "I only recognize modes TM and TE. Received:" + str(mode)
             )
 
+    def bsc(self, n, m, mode="tm"):
+            if (n, m) not in self.bscs(mode): return 0
+            return self.bscs(mode)[n, m]
+
+    def is_same_type(self, o):
+        names = {o.name, self.name}
+        if (names.issubset(ELECTRIC_FIELD_NAMES)
+            or names.issubset(MAGNETIC_FIELD_NAMES)):
+            return True
+        return False
+
+    def __add__(self, o):
+        if o.k != self.k:
+            raise ValueError(
+                "I cannot add two Fields with different wave numbers."
+            )
+        
+        if type(self) != type(o):
+            raise ValueError(
+                "I cannot add fields with different types."
+            )
+        
+        bscs = {
+            TM_MODE_NAME: self.tm_bscs.copy(),
+            TE_MODE_NAME: self.te_bscs.copy(), 
+        }
+        bscs[TM_MODE_NAME].update(o.tm_bscs)
+        bscs[TE_MODE_NAME].update(o.te_bscs)
+        
+        for mode in bscs:
+            for (n, m) in bscs[mode]:
+                bscs[mode][n, m] = self.bsc(n, m, mode=mode) \
+                                 + o.bsc(n, m, mode=mode)
+        
+        FieldClass = type(self)
+        return FieldClass(self.k, bscs=bscs)
+    
+    def __mul__(self, a):
+        bscs = {
+            TM_MODE_NAME: self.tm_bscs.copy(),
+            TE_MODE_NAME: self.te_bscs.copy(),
+        }
+
+        for mode in bscs:
+            for n, m in bscs[mode]:
+                bscs[mode][n, m] *= a
+
+        FieldClass = type(self)
+        return FieldClass(self.k, bscs=bscs)
+    
+    __rmul__ = __mul__
+
+class SphericalField(Field):
     def eval_component(self, radial, theta, phi,
                   riccati_terms, legendre_terms, pre_mul, nm_func,
                   max_it, radius=None, mode="tm", mies=None):
@@ -172,14 +227,15 @@ class SphericalField(Field):
 
         while n <= max_it:
             for m in self.degrees:
-                inc = plane_wave_coefficient(n, self.wave_number) \
-                    * bscs[(n, m)] \
-                    * riccati_terms[n] \
-                    * legendre_terms[np.abs(m)][n] \
-                    * np.exp(1j * m * phi) \
-                    * nm_func(n, m) \
-                    * mies[n]
-                res += inc
+                if n >= abs(m):
+                    inc = plane_wave_coefficient(n, self.wave_number) \
+                        * bscs[(n, m)] \
+                        * riccati_terms[n] \
+                        * legendre_terms[np.abs(m)][n] \
+                        * np.exp(1j * m * phi) \
+                        * nm_func(n, m) \
+                        * mies[n]
+                    res += inc
             n += 1
         return self.f0 * pre_mul * res
 
@@ -267,16 +323,18 @@ class SphericalField(Field):
         if radial == 0: radial = EPSILON
 
         if not small or radius is None:
-            max_it = self.max_it(radial)
+            max_it = max(self.max_it(radial), 5)
         else:
-            max_it = self.max_it(max_r)
+            max_it = max(self.max_it(max_r), 5)
+        
+        max_degree = min(max([abs(d) for d in self.degrees]), max_it)
 
         rfunc, lfunc, pfunc, nfunc, mfunc =  self.component_funcs(
             direction=direction, mode=mode, part=part, M=M
         )
 
         riccati_terms = rfunc(max_it, radial)
-        legendre_terms = lfunc(max_it, max_it, theta)
+        legendre_terms = lfunc(max_degree, max_it, theta)
         nm_func = nfunc
         pre_mul = pfunc(radial)
         mies = mfunc(max_it, self.wave_number, radius, M, mu, musp)
@@ -423,17 +481,19 @@ class SphericalMagneticField(SphericalField):
 class CartesianField(Field):
     def __init__(self, spherical, *args, **kwargs):
         k = spherical.k
-        super().__init__(k, *args, **kwargs)
+        bscs = {
+            TM_MODE_NAME: spherical.tm_bscs,
+            TE_MODE_NAME: spherical.te_bscs
+        }
+        super().__init__(
+            k, *args, bscs=bscs, name=spherical.name, **kwargs
+        )
         self.spherical = spherical
     
     @classmethod
     def cartesian_at_coord(cls, x, y, z, sph_field, **kwargs):
         rtp = Field.car2sph(x, y, z)
-        return Field.sph2car(
-            sph_field(*rtp, **kwargs),
-            np.arctan2(np.sqrt(x ** 2 + y ** 2), z),
-            np.arctan2(y, x)
-        )
+        return Field.sph2car(sph_field(*rtp, **kwargs), rtp[1], rtp[2])
     
     def field_i(self, x, y, z, **kwargs):
         sph_field = self.spherical.field_i

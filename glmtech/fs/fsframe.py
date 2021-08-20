@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 import mpmath as mp
+from ..field import SphericalElectricField
 
 class FSFrame(ABC):
     """A class that makes BSCs in the FS method."""
@@ -24,17 +25,18 @@ class FSFrame(ABC):
     def premul(self, n, m):
         """Repeated term before each FS sum which may only depend on n and m."""
         if (n - m) % 2 == 0:
-            res  = mp.power(1j, 2 * n + m + 1) / mp.pi ** 2
-            res *= mp.gammaprod([(n - m) / 2 + 1], [(n + m + 1) / 2])
-            res /= mp.power(2, m + 1)
+            res  = mp.power(-1j, abs(m) - 1) / mp.pi
+            res *= mp.gammaprod([(n - abs(m)) / 2 + 1], [(n + abs(m) + 1) / 2])
+            res /= mp.power(2, abs(m) + 1)
         else:
-            res  = mp.power(1j, 2 * n + m) / mp.pi ** 2
-            res *= mp.gammaprod([(n - m + 1) / 2], [(n + m) / 2 + 1])
-            res /= mp.power(2, m + 2)
+            res  = mp.power(-1j, abs(m) - 2) / mp.pi
+            res *= mp.gammaprod([(n - abs(m) + 1) / 2], [(n + abs(m)) / 2 + 1])
+            res /= mp.power(2, abs(m) + 2)
         return res
     
     def bsc(self, n, m, mode="tm"):
         """The BSCs themselves as in the FS."""
+        if n < abs(m): return 0
         fsum = 0
         q = 0
         while q <= n / 2:
@@ -43,3 +45,12 @@ class FSFrame(ABC):
                   * self.maclaurin(n - 2 * q, m, mode=mode)
             q += 1
         return self.premul(n, m) * fsum
+    
+    def make_field(self, max_n=10, degrees=(-1, 1), k=1,
+                   FieldClass=SphericalElectricField):
+        bscs = {"tm": {}, "te": {}}
+        for mode in bscs:
+            for m in degrees:
+                for n in range(1, max_n + 1):
+                    bscs[mode][n, m] = self.bsc(n, m, mode=mode)
+        return FieldClass(k, bscs=bscs)
