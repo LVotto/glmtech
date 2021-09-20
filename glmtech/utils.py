@@ -2,8 +2,8 @@ from scipy.special import (
     loggamma, gammasgn, lpmn,
     riccati_jn, riccati_yn
 )
-import scipy.special as special
 import numpy as np
+import mpmath as mp
 
 # EPS_THETA = 1E-20
 
@@ -67,3 +67,19 @@ def mie_dns(n_max, k, radius, M, mu, musp):
     dn = mu * M * M * (ksi_a[0] * psi_a[1] - ksi_a[1] * psi_a[0]) \
        / (mu * M * ksi_a[0] * psi_b[1] - musp * ksi_a[1] * psi_b[0])
     return dn
+
+def eval_field_at(x, y, z, f=None):
+    field_value = f.field_i(x, y, z)
+    return field_value
+eval_field_at = np.vectorize(eval_field_at)
+
+def eval_norm(val):
+    return float(mp.norm(val))
+eval_norm = np.vectorize(eval_norm)
+
+def eval_norm2(val):
+    return eval_norm(val) ** 2
+
+def bscs_at_m(sph, m=0, min_n=1, max_n=100, mode="tm"):
+    ns = np.arange(min_n, max_n + 1)
+    return np.vectorize(sph.bsc, otypes=[np.ndarray])(ns, m, mode)
