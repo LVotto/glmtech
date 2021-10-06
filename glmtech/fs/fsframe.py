@@ -23,7 +23,7 @@ class FSFrame(ABC):
         pass
     
     def premul(self, n, m):
-        """Repeated term before each FS sum which may only depend on n and m."""
+        """Term before each FS sum which may only depend on n and m."""
         if (n - m) % 2 == 0:
             res  = mp.power(-1j, abs(m) - 1) / mp.pi
             res *= mp.gammaprod([(n - abs(m)) / 2 + 1], [(n + abs(m) + 1) / 2])
@@ -39,7 +39,7 @@ class FSFrame(ABC):
         if n < abs(m): return 0
         fsum = 0
         q = 0
-        while q <= n / 2:
+        while q <= n / 2: # parallel?
             fsum += mp.power(2, n - 2 * q) \
                   * mp.gammaprod([.5 + n - q], [q + 1]) \
                   * self.maclaurin(n - 2 * q, m, mode=mode)
@@ -49,7 +49,7 @@ class FSFrame(ABC):
     def make_field(self, max_n=10, degrees=(-1, 1), k=1,
                    FieldClass=SphericalElectricField):
         bscs = {"tm": {}, "te": {}}
-        for mode in bscs:
+        for mode in bscs: # parallel?
             for m in degrees:
                 for n in range(1, max_n + 1):
                     bscs[mode][n, m] = self.bsc(n, m, mode=mode)
