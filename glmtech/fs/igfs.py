@@ -1,8 +1,9 @@
-# import mpmath as mp
+import mpmath as mp
 import numpy as np
-from numpy.core.fromnumeric import diagonal
+# from numpy.core.fromnumeric import diagonal
 from scipy.sparse import diags
-from scipy.integrate import quad
+from functools import lru_cache
+# from scipy.integrate import quad
 
 from .fsframe import FSFrame
 from .lgfs import FreeLGEvenFSFrame, FreeLGOddFSFrame
@@ -28,7 +29,7 @@ def tridiagonal_ce(n, ell=1):
 
 def tridiagonal_co(n, ell=1):
     diagonals = [
-        [(n - j + 2) * ell for j in range(1, n + 1)],
+        [(n - j + 1) * ell for j in range(1, n + 1)],
         [(2 * j + 1) ** 2 for j in range(n + 1)],
         [(n + j + 2) * ell for j in range(n)]
     ]
@@ -46,7 +47,7 @@ def tridiagonal_se(n, ell=1):
 
 def tridiagonal_so(n, ell=1):
     diagonals = [
-        [(n - j + 2) * ell for j in range(1, n + 1)],
+        [(n - j + 1) * ell for j in range(1, n + 1)],
         [(2 * j + 1) ** 2 for j in range(n + 1)],
         [(n + j + 2) * ell for j in range(n)]
     ]
@@ -64,6 +65,7 @@ def norm2_through_parseval_even(coeffs):
 def norm2_through_parseval_odd(coeffs):
     return norm2_through_parseval_even(np.array([0, *coeffs]))
 
+@lru_cache()
 def cos_coeffs_e(n, m, ell=1, a0=None, normalize=False):
     eigenvals, eigenvecs = np.linalg.eig(tridiagonal_ce(n, ell=ell))
     eigenvals = np.real(eigenvals)
@@ -77,6 +79,7 @@ def cos_coeffs_e(n, m, ell=1, a0=None, normalize=False):
         coeffs *= a0 / coeffs[0]
     return coeffs
 
+@lru_cache()
 def cos_coeffs_o(n, m, ell=1, a0=None, normalize=False):
     eigenvals, eigenvecs = np.linalg.eig(tridiagonal_co(n, ell=ell))
     eigenvals = np.real(eigenvals)
@@ -90,6 +93,7 @@ def cos_coeffs_o(n, m, ell=1, a0=None, normalize=False):
         coeffs *= a0 / coeffs[0]
     return coeffs
 
+@lru_cache()
 def sin_coeffs_e(n, m, ell=1, a0=None, normalize=False):
     if m == 0 or n == 0: return 0
     eigenvals, eigenvecs = np.linalg.eig(tridiagonal_se(n, ell=ell))
@@ -104,6 +108,7 @@ def sin_coeffs_e(n, m, ell=1, a0=None, normalize=False):
         coeffs *= a0 / coeffs[0]
     return coeffs
     
+@lru_cache()
 def sin_coeffs_o(n, m, ell=1, a0=None, normalize=False):
     if m == 0 or n == 0: return 0
     eigenvals, eigenvecs = np.linalg.eig(tridiagonal_so(n, ell=ell))
@@ -192,13 +197,30 @@ def ince_s(x, ell, a, b, normalize=True):
         return ince_so(x, ell, a, b, normalize=normalize)
 
 class IGFSFrame(FSFrame):
-    def __init__(self, k, w0, a=0, b=0, even=True):
+    def __init__(self, k, w0, a=0, b=0, ellipticity=1, even=True):
         self.wavenumber = k
         self.k = k
         self.w0 = w0        # Beam waist radius
         self.a = a          # IP sub-index (a = 2n or a = 2n + 1)
         self.b = b          # IP super-index (b = 2m or b = 2m + 1)
-        self.even = True    # Whether IP is even
+        self.even = even    # Whether IP is even
+        self.ellipticity = ellipticity
+        self.ell = self.ellipticity
+    
+        if self.even:
+            if self.a % 2 == 0:
+                coeff_func = cos_coeffs_e
+            else:
+                coeff_func = cos_coeffs_o
+        else:
+            if self.a % 2 == 0:
+                coeff_func = sin_coeffs_e
+            else:
+                coeff_func = sin_coeffs_o
+        
+        n, m = self.a // 2, self.b // 2
+        self.fourier_coeffs = coeff_func(n, m, ell=self.ellipticity,
+                                         normalize=True)
     
     def is_even(self):
         return self.even
@@ -209,3 +231,34 @@ class IGFSFrame(FSFrame):
     def te_maclaurin(self, *args, **kwargs):
         pass
 
+    def lg_coeff(self, q):
+        a, b = self.a, self.b
+        d_2q_a = 1 if a == 2 * q else 0
+        d_even_false = 1 if not self.even else 0
+        
+        coeff = pow(-1, q + (b - a) / 2) \
+              * mp.sqrt((1 + d_2q_a) * mp.gamma(a - q + 1) * mp.factorial(q)) \
+              * self.fourier_coeffs[(a - 2 * q + d_even_false) // 2]
+        return coeff
+
+    def lg_frame(self, p, l, even=None):
+        if even is None: even = self.even
+        LGFrame = FreeLGEvenFSFrame if even else FreeLGOddFSFrame
+        return LGFrame(self.k, self.w0, p=p, l=l)
+    
+    def bsc(self, n, m, mode="tm"):
+        if n < abs(m): return 0
+        a = self.a
+        # For normalization
+        coeff_sum = sum([self.lg_coeff(q) for q in range(a // 2 + 1)])
+        def term(q):
+            if abs(m) not in (a - 2 * q - 1, a - 2 * q + 1):
+                return 0
+            return self.lg_coeff(q) * self.lg_frame(q, a - 2 * q).bsc(
+                n, m, mode=mode
+            )
+        return sum(map(term, [q for q in range(a // 2 + 1)])) / coeff_sum
+    
+    def make_field(self, *args, **kwargs):
+        degrees = np.arange(-self.a - 1, self.a + 2, 2)
+        return super().make_field(*args, k=self.k, degrees=degrees, **kwargs)

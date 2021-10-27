@@ -235,7 +235,8 @@ class SphericalField(Field):
                         * np.exp(1j * m * phi) \
                         * nm_func(n, m) \
                         * mies[n]
-                    res += inc
+                    if not mp.isnan(inc):
+                        res += inc
             n += 1
         return self.f0 * pre_mul * res
 
@@ -315,12 +316,17 @@ class SphericalField(Field):
                  direction="r"):
         if direction.lower().startswith("r") and self.is_transverse(mode):
             return 0
-        
+
         if part == "s":
             if radial < radius: return 0
         if part == "sp":
             if radial > radius: return 0
-        if radial == 0: radial = EPSILON
+
+        wavelength = 2 * np.pi / self.k
+        if radial < EPSILON:
+            # print(radial)
+            radial = wavelength * 1e-3
+        # if radial == 0: radial = EPSILON
 
         if not small or radius is None:
             max_it = max(self.max_it(radial), 5)
@@ -503,11 +509,14 @@ class CartesianField(Field):
         sph_field = self.spherical.field_s
         return CartesianField.cartesian_at_coord(x, y, z, sph_field, **kwargs)
     
-    
     def field_sp(self, x, y, z, **kwargs):
         sph_field = self.spherical.field_sp
         return CartesianField.cartesian_at_coord(x, y, z, sph_field, **kwargs)
     
+    def sph_at_xyz(self, func, x, y, z, *args, **kwargs):
+        rtp = Field.car2sph(x, y, z)
+        return func(*rtp, *args, **kwargs)
+
     def in_radius(self, x, y, z, radius=None):
         radius = radius or self.wavelength
         return np.linalg.norm([x, y, z]) <= radius
