@@ -95,7 +95,7 @@ def cos_coeffs_o(n, m, ell=1, a0=None, normalize=False):
 
 @lru_cache()
 def sin_coeffs_e(n, m, ell=1, a0=None, normalize=False):
-    if m == 0 or n == 0: return 0
+    if m == 0 or n == 0: return [0]
     eigenvals, eigenvecs = np.linalg.eig(tridiagonal_se(n, ell=ell))
     eigenvals = np.real(eigenvals)
     eigenvecs = eigenvecs.T[eigenvals.argsort()]
@@ -106,11 +106,12 @@ def sin_coeffs_e(n, m, ell=1, a0=None, normalize=False):
         a0 = np.sqrt(np.pi / norm2)
     if a0 is not None:
         coeffs *= a0 / coeffs[0]
-    return coeffs
-    
+    return np.array([0, *coeffs])
+
+
 @lru_cache()
 def sin_coeffs_o(n, m, ell=1, a0=None, normalize=False):
-    if m == 0 or n == 0: return 0
+    # if m == 0 or n == 0: return [0]
     eigenvals, eigenvecs = np.linalg.eig(tridiagonal_so(n, ell=ell))
     eigenvals = np.real(eigenvals)
     eigenvecs = eigenvecs.T[eigenvals.argsort()]
@@ -123,27 +124,18 @@ def sin_coeffs_o(n, m, ell=1, a0=None, normalize=False):
         coeffs *= a0 / coeffs[0]
     return coeffs
 
-def fourier_coeff_ce(j, n, m, ell=1, a0=1):
-    if j == 0: return a0
-    if j > n: return 0
-
-    eigenvals = sorted(eig_ce(n, ell=ell))
-    eig = eigenvals[m]
-
-    if j == 1:
-        return a0 * eig / ell / (n + 1)
-
-    aj = lambda k: fourier_coeff_ce(k, n, m, ell=ell, a0=a0)
-
-    if j == 2:
-        a1 = aj(1)
-        return -(a0 * 2 * n * ell + (4 - eig) * a1) / (n + 2) / ell
+def fourier_coeffs(*args, even=True, even_order=True, **kwargs):
+    if even_order:
+        if even:
+            return cos_coeffs_e(*args, **kwargs)
+        else:
+            return sin_coeffs_e(*args, **kwargs)
+    else:
+        if even:
+            return cos_coeffs_o(*args, **kwargs)
+        else:
+            return sin_coeffs_o(*args, **kwargs)
     
-    ajm2 = aj(j - 2)
-    ajm1 = aj(j - 1)
-    return -((n - j + 2) * ell * ajm2 \
-        + (4 * j ** 2 - eig) * ajm1) / ell / (n + j)
-
 def ince_ce(x, ell, a, b, normalize=True):
     n, m = a // 2, b // 2
     ce = 0
@@ -165,7 +157,7 @@ def ince_se(x, ell, a, b, normalize=True):
     n, m = a // 2, b // 2
     se = 0
     coeffs = sin_coeffs_e(n, m, ell=ell, a0=1, normalize=normalize)
-    se = np.dot(coeffs, np.array([np.sin(2 * j * x) for j in range(1, n + 1)]))
+    se = np.dot(coeffs, np.array([np.sin(2 * j * x) for j in range(n + 1)]))
     return se
 
 def ince_so(x, ell, a, b, normalize=True):
@@ -234,7 +226,8 @@ class IGFSFrame(FSFrame):
     def lg_coeff(self, q):
         a, b = self.a, self.b
         d_2q_a = 1 if a == 2 * q else 0
-        d_even_false = 1 if not self.even else 0
+        # d_even_false = 1 if not self.even else 0
+        d_even_false = 0
         
         coeff = pow(-1, q + (b - a) / 2) \
               * mp.sqrt((1 + d_2q_a) * mp.gamma(a - q + 1) * mp.factorial(q)) \
