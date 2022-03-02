@@ -1,12 +1,49 @@
-from scipy.special import (
-    loggamma, gammasgn, lpmn,
-    riccati_jn, riccati_yn
-)
+from difflib import get_close_matches
+import scipy.special as spc
 import numpy as np
 import mpmath as mp
+import pickle
+from pathlib import Path
+import os
 
 # EPS_THETA = 1E-20
 
+
+# LOOK_UP_FOLDER = Path("/cached/look_up/").absolute()
+
+dir_name = os.path.join("cached", "look_up")
+LOOK_UP_FOLDER = os.path.join(os.path.dirname(__file__), dir_name)
+
+def look_up(func, folder=LOOK_UP_FOLDER):
+    filepath = os.path.join(folder, (func.__name__ + ".pickle"))
+    # filepath = Path(filename).absolute()
+    try:
+        with open(filepath, "rb") as f:
+            CACHE = pickle.load(f)
+    except FileNotFoundError:  
+        CACHE = {}
+        
+    def looked_up_func(*args, **kwargs):
+        key = (args, frozenset(kwargs.items()))
+        if key not in CACHE:
+            CACHE[key] = func(*args, **kwargs)
+            with open(filepath, "wb") as f:
+                pickle.dump(CACHE, f)
+        return CACHE[key]
+    
+    return looked_up_func
+
+@look_up
+def lpmn(*args, **kwargs):
+    return spc.lpmn(*args, **kwargs)
+
+@look_up
+def riccati_jn(*args, **kwargs):
+    return spc.riccati_jn(*args, **kwargs)
+
+@look_up
+def riccati_yn(*args, **kwargs):
+    return spc.riccati_yn(*args, **kwargs)
 
 def plane_wave_coefficient(degree, wave_number_k):
     """ Computes plane wave coefficient :math:`c_{n}^{pw}` """
@@ -83,3 +120,22 @@ def eval_norm2(val):
 def bscs_at_m(sph, m=0, min_n=1, max_n=100, mode="tm"):
     ns = np.arange(min_n, max_n + 1)
     return np.vectorize(sph.bsc, otypes=[np.ndarray])(ns, m, mode)
+
+factorial = np.math.factorial
+def lg_mode(x, y, z=0, p=0, l=0, k=1e-7, w0=1e-5):
+    dl0 = 2 if l == 0 else 1
+    c_pl = np.sqrt(2 * factorial(p) / np.pi / dl0 / factorial(p + l))
+    zr = k * w0 ** 2 / 2
+    R_inv = z / (z ** 2 + zr ** 2)
+    w = w0 * np.sqrt(1 + z ** 2 / zr ** 2)
+    psi = np.arctan2(z, zr)
+
+    rho, phi = np.linalg.norm([x, y]), np.arctan2(y, x)
+    
+    return (
+        c_pl / w * (rho / w * np.sqrt(2)) ** l 
+        * spc.assoc_laguerre(2 * rho ** 2 / w ** 2, p, l)
+        * np.exp(1j * (l * phi - k * rho ** 2 / 2 * R_inv))
+        * np.exp(1j * (2 * p + l + 1) * psi)
+        * np.exp(-rho ** 2 / w ** 2)
+    )

@@ -55,138 +55,86 @@ def tridiagonal_so(n, ell=1):
     diagonals[1][0] -= (n + 1) * ell
     return diags(diagonals, [-1, 0, 1]).toarray()
 
-def eig_ce(n, ell=1):
-    """ Eigenvalues for even IPs with even indices """
-    return sorted(np.real(np.linalg.eig(tridiagonal_ce(n, ell=ell))[0]))
-
-def norm2_through_parseval_even(coeffs):
-    return np.pi * (np.abs(coeffs[0]) ** 2 + sum(np.abs(coeffs[1:]) ** 2) / 2)
-
-def norm2_through_parseval_odd(coeffs):
-    return norm2_through_parseval_even(np.array([0, *coeffs]))
-
 @lru_cache()
-def cos_coeffs_e(n, m, ell=1, a0=None, normalize=False):
+def cos_coeffs_e(n, m, ell=1):
     eigenvals, eigenvecs = np.linalg.eig(tridiagonal_ce(n, ell=ell))
     eigenvals = np.real(eigenvals)
     eigenvecs = eigenvecs.T[eigenvals.argsort()]
     coeffs = eigenvecs[m]
-    if normalize:
-        coeffs *= 1 / coeffs[0]
-        norm2 = norm2_through_parseval_even(coeffs) * 2
-        a0 = np.sqrt(np.pi / norm2)
-    if a0 is not None:
-        coeffs *= a0 / coeffs[0]
     return coeffs
 
 @lru_cache()
-def cos_coeffs_o(n, m, ell=1, a0=None, normalize=False):
+def cos_coeffs_o(n, m, ell=1):
     eigenvals, eigenvecs = np.linalg.eig(tridiagonal_co(n, ell=ell))
     eigenvals = np.real(eigenvals)
     eigenvecs = eigenvecs.T[eigenvals.argsort()]
     coeffs = eigenvecs[m]
-    if normalize:
-        coeffs *= 1 / coeffs[0]
-        norm2 = norm2_through_parseval_odd(coeffs) * 2
-        a0 = np.sqrt(np.pi / norm2)
-    if a0 is not None:
-        coeffs *= a0 / coeffs[0]
     return coeffs
 
 @lru_cache()
-def sin_coeffs_e(n, m, ell=1, a0=None, normalize=False):
-    if m == 0 or n == 0: return [0]
+def sin_coeffs_e(n, m, ell=1):
+    if m == 0 or n == 0: return np.array([0])
     eigenvals, eigenvecs = np.linalg.eig(tridiagonal_se(n, ell=ell))
     eigenvals = np.real(eigenvals)
     eigenvecs = eigenvecs.T[eigenvals.argsort()]
     coeffs = eigenvecs[m - 1]
-    if normalize:
-        coeffs *= 1 / coeffs[0]
-        norm2 = norm2_through_parseval_odd(coeffs) * 2
-        a0 = np.sqrt(np.pi / norm2)
-    if a0 is not None:
-        coeffs *= a0 / coeffs[0]
     return np.array([0, *coeffs])
 
 
 @lru_cache()
-def sin_coeffs_o(n, m, ell=1, a0=None, normalize=False):
+def sin_coeffs_o(n, m, ell=1):
     # if m == 0 or n == 0: return [0]
     eigenvals, eigenvecs = np.linalg.eig(tridiagonal_so(n, ell=ell))
     eigenvals = np.real(eigenvals)
     eigenvecs = eigenvecs.T[eigenvals.argsort()]
     coeffs = eigenvecs[m]
-    if normalize:
-        coeffs *= 1 / coeffs[0]
-        norm2 = norm2_through_parseval_odd(coeffs) * 2
-        a0 = np.sqrt(np.pi / norm2)
-    if a0 is not None:
-        coeffs *= a0 / coeffs[0]
     return coeffs
 
-def fourier_coeffs(*args, even=True, even_order=True, **kwargs):
-    if even_order:
+def t_norm(v):
+    u = v.copy()
+    u[0] *= np.sqrt(2)
+    return np.linalg.norm(u)
+
+def fourier_coeffs(a, b, even=True, normalize=True,
+                   **kwargs):
+    if a % 2 != b % 2: return []
+    args = (a // 2, b // 2)
+    if a % 2 == 0:
         if even:
-            return cos_coeffs_e(*args, **kwargs)
+            coeffs = cos_coeffs_e(*args, **kwargs)
         else:
-            return sin_coeffs_e(*args, **kwargs)
+            coeffs = sin_coeffs_e(*args, **kwargs)
     else:
         if even:
-            return cos_coeffs_o(*args, **kwargs)
+            coeffs = cos_coeffs_o(*args, **kwargs)
         else:
-            return sin_coeffs_o(*args, **kwargs)
+            coeffs = sin_coeffs_o(*args, **kwargs)
+    if normalize and len(coeffs[coeffs != 0]) > 0:
+        if coeffs[coeffs != 0][0] < 0:
+            coeffs = -coeffs
+        if even and a % 2 == 0:
+            the_norm = t_norm
+        else:
+            the_norm = np.linalg.norm
+        coeffs = coeffs / the_norm(coeffs)
+    return coeffs
     
-def ince_ce(x, ell, a, b, normalize=True):
-    n, m = a // 2, b // 2
-    ce = 0
-    coeffs = cos_coeffs_e(n, m, ell=ell, a0=1, normalize=normalize)
-    # for j in range(n + 1):
-        # ce += fourier_coeff_ce(j, n, m, ell=ell, a0=1) * np.cos(2 * j * x)
-    ce = np.dot(coeffs, np.array([np.cos(2 * j * x) for j in range(n + 1)]))
-    return ce
+def ince(x, ell, a, b, normalize=True, even=True):
+    if a % 2 != b % 2:
+        return 0
+    sc = np.cos if even else np.sin
 
-def ince_co(x, ell, a, b, normalize=True):
-    n, m = a // 2, b // 2
-    co = 0
-    coeffs = cos_coeffs_o(n, m, ell=ell, a0=1, normalize=normalize)
-    co = np.dot(coeffs,
-        np.array([np.cos((2 * j + 1) * x) for j in range(n + 1)]))
-    return co
+    coeffs = fourier_coeffs(a, b, ell=ell, normalize=normalize, even=even)
+    return np.dot(coeffs,
+        np.array([sc((2 * j + (a % 2)) * x) for j in range(a // 2 + 1)])
+    )
 
-def ince_se(x, ell, a, b, normalize=True):
-    n, m = a // 2, b // 2
-    se = 0
-    coeffs = sin_coeffs_e(n, m, ell=ell, a0=1, normalize=normalize)
-    se = np.dot(coeffs, np.array([np.sin(2 * j * x) for j in range(n + 1)]))
-    return se
+def ince_c(*args, **kwargs):
+    return ince(*args, even=True, **kwargs)
 
-def ince_so(x, ell, a, b, normalize=True):
-    n, m = a // 2, b // 2
-    so = 0
-    coeffs = sin_coeffs_o(n, m, ell=ell, a0=1, normalize=normalize)
-    so = np.dot(coeffs,
-        np.array([np.sin((2 * j + 1) * x) for j in range(n + 1)]))
-    return so
+def ince_s(*args, **kwargs):
+    return ince(*args, even=False, **kwargs)
 
-def ince_c(x, ell, a, b, normalize=True):
-    if a % 2 == 0:
-        if b % 2 != 0:
-            return 0
-        return ince_ce(x, ell, a, b, normalize=normalize)
-    else:
-        if b % 2 == 0:
-            return 0
-        return ince_co(x, ell, a, b, normalize=normalize)
-
-def ince_s(x, ell, a, b, normalize=True):
-    if a % 2 == 0:
-        if b % 2 != 0:
-            return 0
-        return ince_se(x, ell, a, b, normalize=normalize)
-    else:
-        if b % 2 == 0:
-            return 0
-        return ince_so(x, ell, a, b, normalize=normalize)
 
 class IGFSFrame(FSFrame):
     def __init__(self, k, w0, a=0, b=0, ellipticity=1, even=True):
@@ -199,20 +147,20 @@ class IGFSFrame(FSFrame):
         self.ellipticity = ellipticity
         self.ell = self.ellipticity
     
-        if self.even:
-            if self.a % 2 == 0:
-                coeff_func = cos_coeffs_e
-            else:
-                coeff_func = cos_coeffs_o
-        else:
-            if self.a % 2 == 0:
-                coeff_func = sin_coeffs_e
-            else:
-                coeff_func = sin_coeffs_o
+        # if self.even:
+        #     if self.a % 2 == 0:
+        #         coeff_func = cos_coeffs_e
+        #     else:
+        #         coeff_func = cos_coeffs_o
+        # else:
+        #     if self.a % 2 == 0:
+        #         coeff_func = sin_coeffs_e
+        #     else:
+        #         coeff_func = sin_coeffs_o
         
-        n, m = self.a // 2, self.b // 2
-        self.fourier_coeffs = coeff_func(n, m, ell=self.ellipticity,
-                                         normalize=True)
+        # n, m = self.a // 2, self.b // 2
+        self.fourier_coeffs = self.fourier_coeffs(a, b, ell=ellipticity,
+                                         normalize=True, even=even)
     
     def is_even(self):
         return self.even

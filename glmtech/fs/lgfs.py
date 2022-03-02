@@ -1,5 +1,5 @@
 import mpmath as mp
-# from functools import cache
+from functools import lru_cache
 
 from .fsframe import FSFrame
 
@@ -25,7 +25,7 @@ class FreeLGFSFrame(FSFrame):
     def beta(self, n, mu):
         s = self.s
         if n >= mu and (n - mu) % 2 == 0:
-            return (1j * s) ** (n - mu) / mp.factorial((n - mu) / 2)
+            return (1j * s) ** (n - mu) * mp.gammaprod([], [(n - mu) / 2 + 1])
         return 0
     
     def laguerre_coeff(self, j, p=None, l=None):
@@ -60,6 +60,7 @@ class FreeLGFSFrame(FSFrame):
                 * self.beta(n, 2 * j + l + 4)
         return -pi * 2 ** (l / 2 + 1) * s ** (l + 5) * result
     
+    @lru_cache(maxsize=None)
     def tm_maclaurin(self, n, m):
         if m in (self.l + 1, self.l - 1):
             if (n - m) % 2 == 0:
@@ -74,7 +75,7 @@ class FreeLGFSFrame(FSFrame):
     def normalization_constant(self):
         p, l, k = self.p, self.l, self.k
         d = 2 if l == 0 else 1
-        return 2 * k * mp.sqrt(mp.gammaprod([p + 1], [p + l + 1]) / pi / d)
+        return k * mp.sqrt(2 * mp.gammaprod([p + 1], [p + l + 1]) / pi / d)
     
     def bsc(self, n, m, mode="tm"):
         if abs(m) > n or m not in (self.l + 1, self.l - 1): return 0

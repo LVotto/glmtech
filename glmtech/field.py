@@ -1,11 +1,12 @@
 from abc import ABC, abstractmethod
 import numpy as np
 import mpmath as mp
-from scipy.special import (riccati_jn, riccati_yn, lpmn)
 from functools import partialmethod
 
 from .utils import (
-    plane_wave_coefficient, ltaumn, lpimn,
+    plane_wave_coefficient,
+    riccati_yn, riccati_jn,
+    lpmn, ltaumn, lpimn,
     mie_ans, mie_bns, mie_cns, mie_dns
 )
 
@@ -67,6 +68,20 @@ class Field(ABC):
     def max_it(self, radius):
         x = self.wave_number * radius
         return Field.max_n(x)
+    
+    @classmethod
+    def max_x(cls, n):
+        sqrt = np.sqrt
+        return (
+            n - 81 * (500 * n + 5 * sqrt(5)
+            * sqrt(2000 *n ** 2 - 8000*n + 27683) - 1000) ** (1/3) / 200
+            - 2 + 2187 * 5 ** (2 / 3)
+            / (200 * (100 * n + sqrt(5) 
+                * sqrt(2000 * n ** 2 - 8000 * n + 27683) - 200) ** (1 / 3))
+        )
+    
+    def max_r(self, n):
+        return Field.max_x(n) / self.k
 
     @abstractmethod
     def field_i(self, x1, x2, x3, **kwargs):
@@ -152,7 +167,7 @@ class Field(ABC):
     def in_radius(self, x1, x2, x3, radius=None):
         pass
     
-    def bscs(self, mode):
+    def bscs(self, mode="tm"):
         if mode.lower() == "tm":
             return self.tm_bscs
         if mode.lower() == "te":
