@@ -1,3 +1,4 @@
+from matplotlib.pyplot import uninstall_repl_displayhook
 import mpmath as mp
 import numpy as np
 # from numpy.core.fromnumeric import diagonal
@@ -8,7 +9,7 @@ from functools import lru_cache
 from .fsframe import FSFrame
 from .lgfs import FreeLGEvenFSFrame, FreeLGOddFSFrame
 
-"""FSFrame for Hermite-Gaussian beams.
+"""FSFrame for Ince-Gaussian beams.
 
 This is based on FreeLGFSFrame.
 
@@ -125,9 +126,13 @@ def ince(x, ell, a, b, normalize=True, even=True):
     sc = np.cos if even else np.sin
 
     coeffs = fourier_coeffs(a, b, ell=ell, normalize=normalize, even=even)
-    return np.dot(coeffs,
+    
+    val = np.dot(coeffs,
         np.array([sc((2 * j + (a % 2)) * x) for j in range(a // 2 + 1)])
     )
+    if not even and not np.isreal(x):
+        val = -1j * val
+    return val
 
 def ince_c(*args, **kwargs):
     return ince(*args, even=True, **kwargs)
@@ -147,19 +152,7 @@ class IGFSFrame(FSFrame):
         self.ellipticity = ellipticity
         self.ell = self.ellipticity
     
-        # if self.even:
-        #     if self.a % 2 == 0:
-        #         coeff_func = cos_coeffs_e
-        #     else:
-        #         coeff_func = cos_coeffs_o
-        # else:
-        #     if self.a % 2 == 0:
-        #         coeff_func = sin_coeffs_e
-        #     else:
-        #         coeff_func = sin_coeffs_o
-        
-        # n, m = self.a // 2, self.b // 2
-        self.fourier_coeffs = self.fourier_coeffs(a, b, ell=ellipticity,
+        self.fourier_coeffs = fourier_coeffs(a, b, ell=ellipticity,
                                          normalize=True, even=even)
     
     def is_even(self):
@@ -171,7 +164,7 @@ class IGFSFrame(FSFrame):
     def te_maclaurin(self, *args, **kwargs):
         pass
 
-    def lg_coeff(self, q):
+    def unnormed_lg_coeff(self, q):
         a, b = self.a, self.b
         d_2q_a = 1 if a == 2 * q else 0
         # d_even_false = 1 if not self.even else 0
@@ -182,6 +175,12 @@ class IGFSFrame(FSFrame):
               * self.fourier_coeffs[(a - 2 * q + d_even_false) // 2]
         return coeff
 
+    @lru_cache()    
+    def lg_coeff(self, q):
+        qs = [q for q in range(self.a // 2 + 1)]
+        norm = np.linalg.norm([self.unnormed_lg_coeff(q) for q in qs])
+        return self.unnormed_lg_coeff(q) / norm
+
     def lg_frame(self, p, l, even=None):
         if even is None: even = self.even
         LGFrame = FreeLGEvenFSFrame if even else FreeLGOddFSFrame
@@ -191,14 +190,14 @@ class IGFSFrame(FSFrame):
         if n < abs(m): return 0
         a = self.a
         # For normalization
-        coeff_sum = sum([self.lg_coeff(q) for q in range(a // 2 + 1)])
+        # coeff_sum = np.linalg.norm([self.lg_coeff(q) for q in range(a // 2 + 1)])
         def term(q):
             if abs(m) not in (a - 2 * q - 1, a - 2 * q + 1):
                 return 0
             return self.lg_coeff(q) * self.lg_frame(q, a - 2 * q).bsc(
                 n, m, mode=mode
             )
-        return sum(map(term, [q for q in range(a // 2 + 1)])) / coeff_sum
+        return sum(map(term, [q for q in range(a // 2 + 1)]))
     
     def make_field(self, *args, **kwargs):
         degrees = np.arange(-self.a - 1, self.a + 2, 2)

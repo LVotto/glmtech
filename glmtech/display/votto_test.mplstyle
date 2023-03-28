@@ -1,0 +1,12 @@
+lines.linewidth: 2
+text.usetex: True
+font.family: "serif"
+axes.titlesize: 32
+axes.labelsize: 24
+axes.titlepad: 24
+xtick.labelsize: "xx-large"
+ytick.labelsize: "xx-large"
+legend.fontsize: 24
+figure.figsize: [6, 4]
+figure.dpi: 100 
+axes.grid: True

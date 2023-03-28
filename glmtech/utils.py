@@ -1,9 +1,11 @@
 from difflib import get_close_matches
+from functools import cache
+from typing import Type
 import scipy.special as spc
 import numpy as np
 import mpmath as mp
+from mpmath import mpf
 import pickle
-from pathlib import Path
 import os
 
 # EPS_THETA = 1E-20
@@ -33,15 +35,29 @@ def look_up(func, folder=LOOK_UP_FOLDER):
     
     return looked_up_func
 
-@look_up
+# @look_up
 def lpmn(*args, **kwargs):
     return spc.lpmn(*args, **kwargs)
 
-@look_up
+# @look_up
 def riccati_jn(*args, **kwargs):
     return spc.riccati_jn(*args, **kwargs)
 
-@look_up
+# RICCATI_FILE = os.path.join(LOOK_UP_FOLDER, "_riccati_jn.pickle")
+# def riccati_jn(n, x):
+#     try:
+#         with open(RICCATI_FILE, "rb") as f:
+#             CACHE = pickle.load(f)
+#     except FileNotFoundError:
+#         CACHE = {}
+    
+#     if x not in CACHE or len(CACHE[x][0]) < n:
+#         CACHE[x] = spc.riccati_jn(n, x)
+#         with open(RICCATI_FILE, "wb") as f:
+#             pickle.dump(CACHE, f)
+#     return CACHE[x]
+
+# @look_up
 def riccati_yn(*args, **kwargs):
     return spc.riccati_yn(*args, **kwargs)
 
@@ -139,3 +155,15 @@ def lg_mode(x, y, z=0, p=0, l=0, k=1e-7, w0=1e-5):
         * np.exp(1j * (2 * p + l + 1) * psi)
         * np.exp(-rho ** 2 / w ** 2)
     )
+
+@cache
+def bp(n, x, a=2.5, b=2):
+    """ Bessel polynomial """
+    if n == 0: return 1
+    if n == 1: return mpf(1 + a * x / b)
+    
+    coeff_den = (n + a - 2) * (2 * n + a - 4)
+    A = ((2 * n + a - 2) * (2 * n + a - 4) * (x / b) + a - 2) * (2 * n + a - 3)
+    A = A / coeff_den
+    B = (n - 1) * (2 * n + a - 2) / coeff_den
+    return mpf(A * bp(n - 1, x, a=a, b=b) + B * bp(n - 2, x, a=a, b=b))

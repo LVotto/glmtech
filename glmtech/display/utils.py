@@ -18,5 +18,20 @@ def setup_style(base=TEST_STYLE, params={}):
     return base_params
 
 if __name__ == "__main__":
-    configure_new_style("ieee_with_100dpi", params={"figure.dpi": 100})
-    mpl.style.use(".\\ieee_with_100dpi.mplstyle")
+    # configure_new_style("ieee_with_100dpi", params={"figure.dpi": 100})
+    # mpl.style.use(".\\ieee_with_100dpi.mplstyle")
+    params = {
+        "text.usetex": True,
+        "lines.linewidth": 2,
+        "text.usetex": True,
+        "font.family": "serif",
+        "axes.titlesize": "x-large",
+        "axes.labelsize": "x-large",
+        "axes.titlepad": 24,
+        "xtick.labelsize": "x-large",
+        "ytick.labelsize": "x-large",
+        "legend.fontsize": "x-large",
+        "figure.figsize": [12, 8],
+        "figure.dpi": 200,
+    }
+    configure_new_style("article", base="ieee", params=params)

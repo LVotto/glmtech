@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 import numpy as np
 import mpmath as mp
 from functools import partialmethod
+from copy import deepcopy
 
 from .utils import (
     plane_wave_coefficient,
@@ -180,7 +181,7 @@ class Field(ABC):
     def bsc(self, n, m, mode="tm"):
             if (n, m) not in self.bscs(mode): return 0
             return self.bscs(mode)[n, m]
-
+    
     def is_same_type(self, o):
         names = {o.name, self.name}
         if (names.issubset(ELECTRIC_FIELD_NAMES)
@@ -229,13 +230,26 @@ class Field(ABC):
     
     __rmul__ = __mul__
 
+    def truncate_field_at(self, max_n):
+        f = deepcopy(self)
+
+        for n, m in self.tm_bscs:
+            if n >= max_n:
+                del f.tm_bscs[(n, m)]
+                
+        for n, m in self.te_bscs:
+            if n >= max_n:
+                del f.te_bscs[(n, m)]
+        
+        return f
+
 class SphericalField(Field):
     def eval_component(self, radial, theta, phi,
                   riccati_terms, legendre_terms, pre_mul, nm_func,
                   max_it, radius=None, mode="tm", mies=None):
         n, res = 1, 0
         
-        bscs = self.bscs(mode)
+        # bscs = self.bscs(mode)
 
         if mies is None:
             mies = [1 for _ in range(max_it + 1)]
@@ -244,7 +258,7 @@ class SphericalField(Field):
             for m in self.degrees:
                 if n >= abs(m):
                     inc = plane_wave_coefficient(n, self.wave_number) \
-                        * bscs[(n, m)] \
+                        * self.bsc(n, m, mode=mode) \
                         * riccati_terms[n] \
                         * legendre_terms[np.abs(m)][n] \
                         * np.exp(1j * m * phi) \
